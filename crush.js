@@ -3,40 +3,14 @@
 /**
  * CRUSH — simplified straw2 placement engine.
  *
- * ── Data structure contracts ─────────────────────────────────────────────────
+ * Data-structure contracts: {@link OSD}, {@link Host}, {@link ClusterMap},
+ * {@link Pool}, {@link Mapping} — see types.js.
  *
- *   OSD:
- *     { id: number,          -- stable numeric OSD id (never reused)
- *       size: number,        -- declared capacity in TB; used as base weight
- *       out: boolean }       -- true = temporarily excluded from placement
- *
- *   Host:
- *     { id: string,          -- stable string id (never reused)
- *       hid: number,         -- stable numeric id for hashing (never reused)
- *       name: string,        -- display name
- *       out: boolean,        -- true = all OSDs on this host are excluded
- *       osds: OSD[] }
- *
- *   ClusterMap:
- *     { name: string,
- *       hosts: Host[] }
- *
- *   Pool:
- *     { pgCount: number,          -- total placement groups
- *       replicationFactor: number,-- replicas per PG
- *       seed: number }            -- integer; changes the mapping without
- *                                 -- altering the algorithm
- *
- *   Mapping:  Map<pgId: number, osdIds: number[]>
- *             osdIds.length === replicationFactor when enough hosts exist,
- *             otherwise shorter (degraded).
- *
- * ── Algorithm note ───────────────────────────────────────────────────────────
- * Uses weighted reservoir sampling (Efraimidis-Spirakis) as the bucket
- * selection strategy — this is what Ceph calls "straw2".
- * For failure-domain enforcement (one replica per host) we zero-weight
- * already-chosen hosts rather than using CRUSH's retry/attempt mechanism.
- * The result is semantically identical for educational purposes.
+ * Algorithm: weighted reservoir sampling (Efraimidis-Spirakis), which is what
+ * Ceph calls "straw2". Failure-domain enforcement (one replica per host) is
+ * achieved by zero-weighting already-chosen hosts rather than using CRUSH's
+ * retry/attempt mechanism; the result is semantically identical for educational
+ * purposes.
  */
 const CRUSH = (() => {
 
