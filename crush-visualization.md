@@ -5,8 +5,8 @@
 A self-contained, interactive HTML page that teaches Ceph's CRUSH placement
 algorithm through direct manipulation. The user builds a small cluster, configures
 a pool, and observes how PGs are distributed — and how that distribution changes
-when the topology or failure state changes. No server, no dependencies: one file,
-open in a browser.
+when the topology or failure state changes. No server, no build step: open the
+files directly in a browser.
 
 ## What is CRUSH?
 
@@ -39,6 +39,8 @@ The failure domain is the **host**: no two replicas of the same PG are allowed o
 OSDs that belong to the same host. This is the most common real-world configuration.
 
 ## Controls and Interactions
+
+> Controls are added incrementally; see the Implementation Plan for current status.
 
 ### Topology controls
 | Action | Effect |
@@ -102,6 +104,22 @@ This illustrates why production clusters use large PG counts.
 OSDs with larger declared size receive proportionally more PGs. The visualization
 makes this visible through the ideal PG line on each OSD.
 
+### 6. Failure tolerance and stranded capacity
+Usable capacity is not simply raw capacity ÷ replication factor — it is
+constrained by the failure domain structure:
+
+- When **hosts == RF**, every PG must land on every host. The smallest host
+  becomes the bottleneck: the cluster fills up when that host is full, leaving
+  capacity on larger hosts stranded.
+- When **hosts > RF**, CRUSH distributes proportionally across all hosts and the
+  bottleneck disappears; usable ≈ total raw ÷ RF.
+- Losing hosts tightens the constraint further. If the number of surviving hosts
+  drops below RF, the cluster enters a **degraded** state: existing data remains
+  readable but full replication cannot be maintained for new writes.
+
+The worst-case capacity panel shows usable capacity for 0, 1, and 2 host failures,
+always assuming the heaviest hosts fail first (maximum capacity loss).
+
 ## Implementation Notes
 
 - Pure HTML/CSS/JavaScript, no external dependencies.
@@ -111,11 +129,23 @@ makes this visible through the ideal PG line on each OSD.
 - State is kept in a plain JavaScript object; every control change recomputes
   the full mapping from scratch and re-renders.
 - A step-through panel animates the algorithm's traversal for a selected PG.
-- The CRUSH engine lives in a separate `crush.js` file so it can be loaded by
-  both the HTML page (`<script src="crush.js">`) and the Node.js test runner.
-- All JavaScript logic is accompanied by a `crush-test.js` file executable with
-  `node crush-test.js`, covering the engine with smoke tests before the logic
-  is wired into the visualization.
+- Logic is split across focused JS modules; each module that can run in Node.js
+  ships with a `*-test.js` smoke-test runner and a `*-test.html` browser runner.
+  Both use a shared `test-style.css` so they look identical.
+
+### File inventory
+
+| File | Role |
+|------|------|
+| `types.js` | JSDoc `@typedef` declarations (`OSD`, `Host`, `ClusterMap`, `Pool`, `Mapping`, `CapacityScenario`, `OsdId`, `PgId`, `HostHid`). No executable code. |
+| `crush.js` | CRUSH engine: straw2 selection, failure-domain enforcement, per-OSD statistics. |
+| `crush-test.js` | Node.js smoke tests for `crush.js` (11 tests). |
+| `crush-test.html` | Browser runner for the same 11 tests. |
+| `capacity.js` | Worst-case usable capacity analysis (`worstCaseCapacity`). |
+| `capacity-test.js` | Node.js smoke tests for `capacity.js` (10 tests). |
+| `capacity-test.html` | Browser runner for the same 10 tests. |
+| `test-style.css` | Shared stylesheet for all `*-test.html` pages. |
+| `crush-visualization.html` | Main interactive visualisation page. |
 
 ## Implementation Plan
 
@@ -125,7 +155,7 @@ The page is built in eight increments, each independently testable in a browser.
 |---|-----------|-------------|
 | ✅ 1 | **Static cluster map** | Render a hardcoded topology (3 hosts, a few OSDs each) as an SVG tree. No interactivity — establish the visual layout. |
 | ✅ 2 | **CRUSH algorithm core** | `crush.js` — engine with clear data-structure contracts, straw2 bucket selection, failure-domain enforcement, and per-OSD statistics helpers. `crush-test.js` — 11 smoke tests (determinism, replica count, failure domain, weight proportionality, out OSD/host, seed sensitivity, degraded mode, stats helpers), all passing. Bug found and fixed: hash-input collision between host-level and OSD-level selection caused systematic placement bias. |
-| 3 | **PG distribution display** | Wire `pgCountsPerOsd` and `idealPgsPerOsd` into the SVG renderer. Each OSD node shows an `actual / ideal` number pair (e.g. `11 / 12.8`); the fill colour shifts from green toward amber when deviation exceeds ±20%. Also add a cluster-wide summary bar below the SVG: total PGs, replication factor, total PG-slots, and an overall imbalance metric. |
+| ✅ 3 | **PG distribution display** | `actual / ideal` PG count on every OSD circle; fill colour shifts green → amber when deviation exceeds ±20%. Weight labels on host and root nodes. Summary bar: total PGs, replication factor, total PG-slots, max imbalance %. Bonus: worst-case usable capacity panel for 0/1/2 host failures, extracted into `capacity.js` with 10 smoke tests. Refactor: `types.js` (JSDoc typedefs), `test-style.css` (shared test stylesheet), JSDoc `@param`/`@returns` on all public `crush.js` functions. |
 | 4 | **Topology controls** | Control panel: add/remove host, add/remove OSD with size picker. Every change recomputes and re-renders. |
 | 5 | **Pool config controls** | PG count slider (8 / 16 / 32 / 64) and replication factor selector (2 / 3). Wired to the engine. |
 | 6 | **Mark out / back in** | Per-OSD and per-host out/in toggle. Display PGs in transit (displaced from canonical location) vs PGs settled. Restore vs rebalance becomes visible. |
