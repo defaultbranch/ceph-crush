@@ -2,6 +2,10 @@
 
 ## Overview
 
+> **Document authority:** this file is the authoritative design document for the
+> project. [README.md](README.md) is a lightweight GitHub entry point that
+> summarises and links here; all detail lives in this file.
+
 A self-contained, interactive HTML page that teaches Ceph's CRUSH placement
 algorithm through direct manipulation. The user builds a small cluster, configures
 a pool, and observes how PGs are distributed — and how that distribution changes
