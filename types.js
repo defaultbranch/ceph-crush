@@ -8,11 +8,21 @@
  * the @typedef references across files.
  */
 
+// ── Primitive type aliases ────────────────────────────────────────────────────
+// These are structurally identical to number/string at runtime; the aliases
+// exist purely for documentation and hover-tooltip clarity.
+
+/** Stable numeric OSD identifier; never reused after removal. @typedef {number} OsdId */
+/** Stable numeric host identifier used by the CRUSH hash; never reused. @typedef {number} HostHid */
+/** 0-based placement-group identifier. @typedef {number} PgId */
+
+// ── Composite types ───────────────────────────────────────────────────────────
+
 /**
  * A single Object Storage Daemon.
  *
  * @typedef {Object} OSD
- * @property {number}  id   - Stable numeric OSD id; never reused after removal.
+ * @property {OsdId}   id   - Stable numeric OSD id; never reused after removal.
  * @property {number}  size - Declared capacity in TB; used directly as weight.
  * @property {boolean} out  - true = temporarily excluded from placement.
  */
@@ -22,11 +32,11 @@
  * belonging to the same host.
  *
  * @typedef {Object} Host
- * @property {string}  id   - Stable string id; never reused after removal.
- * @property {number}  hid  - Stable numeric id used by the CRUSH hash.
- * @property {string}  name - Display name.
- * @property {boolean} out  - true = treat all OSDs on this host as out.
- * @property {OSD[]}   osds - OSDs attached to this host.
+ * @property {string}   id   - Stable string id; never reused after removal.
+ * @property {HostHid}  hid  - Stable numeric id used by the CRUSH hash.
+ * @property {string}   name - Display name.
+ * @property {boolean}  out  - true = treat all OSDs on this host as out.
+ * @property {OSD[]}    osds - OSDs attached to this host.
  */
 
 /**
@@ -55,7 +65,7 @@
  * The array length equals replicationFactor when enough hosts are available,
  * and is shorter in degraded mode.
  *
- * @typedef {Map<number, number[]>} Mapping
+ * @typedef {Map<PgId, OsdId[]>} Mapping
  */
 
 /**

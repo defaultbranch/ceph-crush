@@ -16,7 +16,15 @@ const CRUSH = (() => {
 
   // ── Hash ───────────────────────────────────────────────────────────────────
   // Jenkins lookup3 finalise — same family as Ceph's crush_hash32_rjenkins1.
-  // Takes three non-negative integers, returns an unsigned 32-bit integer.
+
+  /**
+   * Jenkins lookup3 finalise mix.
+   * Same hash family as Ceph's crush_hash32_rjenkins1.
+   * @param {number} a - First non-negative integer.
+   * @param {number} b - Second non-negative integer.
+   * @param {number} c - Third non-negative integer.
+   * @returns {number} Unsigned 32-bit integer.
+   */
   function hash(a, b, c) {
     const u = x => x >>> 0;
     const rot = (x, n) => u((x << n) | (x >>> (32 - n)));
@@ -36,26 +44,45 @@ const CRUSH = (() => {
   // The host-level flag is handled in hostWeight; callers use osdWeight only
   // for within-host OSD selection (host already confirmed to be in).
 
+  /**
+   * Effective weight of an OSD: its declared size in TB, or 0 when marked out.
+   * @param {OSD} osd
+   * @returns {number}
+   */
   function osdWeight(osd) {
     return osd.out ? 0 : osd.size;
   }
 
+  /**
+   * Effective weight of a host: sum of its OSDs' weights, or 0 when the host
+   * itself is marked out.
+   * @param {Host} host
+   * @returns {number}
+   */
   function hostWeight(host) {
     if (host.out) return 0;
     return host.osds.reduce((sum, o) => sum + osdWeight(o), 0);
   }
 
   // ── Straw2: weighted selection from a list ─────────────────────────────────
-  // items    — array of candidates
-  // getW     — item → effective weight (items with w <= 0 are skipped)
-  // getNumId — item → stable number used in the hash
-  // pgId, r  — placement group id and replica index
-  // seed     — pool seed, mixed into the hash
-  // level    — hierarchy depth (0 = host, 1 = OSD …); prevents hash collisions
-  //            between levels that share the same numeric ids (e.g. hid=0 and
-  //            osd.id=0 would otherwise produce identical hash inputs).
-  //
-  // Returns the selected item, or null if every item has weight ≤ 0.
+
+  /**
+   * Weighted reservoir sampling (Efraimidis-Spirakis / straw2).
+   * Selects one item from `items` with probability proportional to its weight.
+   *
+   * @template T
+   * @param {T[]}              items    - Candidate items.
+   * @param {function(T):number} getW   - Returns the effective weight of an item;
+   *                                      items with weight ≤ 0 are skipped.
+   * @param {function(T):number} getNumId - Returns a stable integer id used in
+   *                                        the hash (must be unique within items).
+   * @param {PgId}   pgId  - Placement-group id.
+   * @param {number} r     - Replica index (0-based).
+   * @param {number} seed  - Pool seed mixed into the hash.
+   * @param {number} level - Hierarchy depth (0 = host, 1 = OSD); prevents hash
+   *                         collisions between levels sharing the same numeric ids.
+   * @returns {T|null} The selected item, or null if every item has weight ≤ 0.
+   */
   function straw2Select(items, getW, getNumId, pgId, r, seed, level) {
     let best = null;
     let bestScore = -Infinity;
@@ -75,6 +102,17 @@ const CRUSH = (() => {
   }
 
   // ── crushSelect: map one pgId → OSD id array ──────────────────────────────
+
+  /**
+   * Runs the CRUSH algorithm for a single PG.
+   * Selects `replicationFactor` OSDs across distinct hosts, proportional to
+   * host and OSD weights. Returns fewer OSDs in degraded mode (not enough hosts).
+   *
+   * @param {PgId}       pgId       - Placement-group id.
+   * @param {ClusterMap} clusterMap
+   * @param {Pool}       pool
+   * @returns {OsdId[]} Ordered list of selected OSD ids (length ≤ replicationFactor).
+   */
   function crushSelect(pgId, clusterMap, pool) {
     const { replicationFactor, seed } = pool;
     const replicas  = [];
@@ -106,6 +144,13 @@ const CRUSH = (() => {
   }
 
   // ── computeMapping: map all PGs in a pool ─────────────────────────────────
+
+  /**
+   * Computes the full PG → OSD mapping for a pool.
+   * @param {ClusterMap} clusterMap
+   * @param {Pool}       pool
+   * @returns {Mapping}
+   */
   function computeMapping(clusterMap, pool) {
     const mapping = new Map();
     for (let pgId = 0; pgId < pool.pgCount; pgId++) {
@@ -116,7 +161,14 @@ const CRUSH = (() => {
 
   // ── Per-OSD statistics (used by the visualization) ────────────────────────
 
-  // Returns Map<osdId, actualCount> for all OSDs in the cluster map.
+  /**
+   * Returns the actual PG count per OSD across the full mapping.
+   * Every OSD in the cluster map is present in the result, even if its count
+   * is zero.
+   * @param {ClusterMap} clusterMap
+   * @param {Mapping}    mapping
+   * @returns {Map<OsdId, number>}
+   */
   function pgCountsPerOsd(clusterMap, mapping) {
     const counts = new Map();
     for (const host of clusterMap.hosts)
@@ -128,8 +180,13 @@ const CRUSH = (() => {
     return counts;
   }
 
-  // Returns Map<osdId, idealCount> based on weight ratios.
-  // idealCount = (osdWeight / totalWeight) * pgCount * replicationFactor
+  /**
+   * Returns the ideal (weight-proportional) PG count per OSD.
+   * idealCount = (osdWeight / totalWeight) × pgCount × replicationFactor
+   * @param {ClusterMap} clusterMap
+   * @param {Pool}       pool
+   * @returns {Map<OsdId, number>}
+   */
   function idealPgsPerOsd(clusterMap, pool) {
     const totalWeight = clusterMap.hosts
       .flatMap(h => h.osds)

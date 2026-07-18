@@ -1,5 +1,6 @@
 'use strict';
 
+/// <reference path="./types.js" />
 const CRUSH = require('./crush.js');
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
