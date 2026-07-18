@@ -100,6 +100,8 @@
   <script src="types.js"></script>
   <!-- CRUSH engine (increment 2) -->
   <script src="crush.js"></script>
+  <!-- capacity analysis -->
+  <script src="capacity.js"></script>
 
   <div id="summary" class="summary-bar"></div>
   <div id="availability" class="avail-panel"></div>
@@ -172,36 +174,6 @@
         if (dev > maxDev) maxDev = dev;
       }
       return maxDev;
-    }
-
-    // Worst-case usable capacity when 0, 1, … hosts fail.
-    // Worst case = the heaviest hosts fail first (maximum capacity loss).
-    // Returns an array of { failures, status, usableTB }.
-    //
-    // Capacity model:
-    //   hosts == RF  → every PG lands on every host; bottleneck = smallest host.
-    //                  usable = min(remaining weights).
-    //   hosts >  RF  → CRUSH distributes proportionally; all hosts fill evenly.
-    //                  usable = sum(remaining weights) / RF.
-    //   hosts <  RF  → cannot satisfy failure-domain constraint; cluster degraded.
-    function worstCaseCapacity(map, rf) {
-      const weights = map.hosts
-        .map(h => CRUSH.hostWeight(h))
-        .filter(w => w > 0)
-        .sort((a, b) => b - a); // descending → biggest fail first
-
-      const scenarios = [];
-      for (let f = 0; f <= Math.min(2, weights.length); f++) {
-        const rem = weights.slice(f);
-        const n   = rem.length;
-        let status, usableTB;
-        if (n === 0)        { status = 'unavailable'; usableTB = null; }
-        else if (n < rf)    { status = 'degraded';    usableTB = null; }
-        else if (n === rf)  { status = 'ok';          usableTB = Math.min(...rem); }
-        else                { status = 'ok';          usableTB = rem.reduce((s, w) => s + w, 0) / rf; }
-        scenarios.push({ failures: f, hostsRemaining: n, status, usableTB });
-      }
-      return scenarios;
     }
 
     // ── layout constants ──────────────────────────────────────────────────────
@@ -341,7 +313,7 @@
           `<span class="stat-value${imb > 0.20 ? ' warn' : ''}">${imbPct}%</span></div>`;
 
       // worst-case capacity panel
-      const scenarios = worstCaseCapacity(clusterMap, pool.replicationFactor);
+      const scenarios = CAPACITY.worstCaseCapacity(clusterMap, pool.replicationFactor);
       const scHTML = scenarios.map(({ failures, hostsRemaining, status, usableTB }) => {
         const title  = failures === 0
           ? 'No failures'

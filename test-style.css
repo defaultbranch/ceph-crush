@@ -1,0 +1,73 @@
+/*
+ * test-style.css — shared stylesheet for all *-test.html pages.
+ *
+ * Structure expected in the page:
+ *   <h1>          — suite title
+ *   <p.subtitle>  — one-line description
+ *   <div#results> — populated by the test runner
+ *     <div.test-row>
+ *       <span.badge.pass|fail>
+ *       <span.test-name>
+ *       <span.test-detail>   (only on failure)
+ *   <div#summary.all-pass|has-fail> — populated by the test runner
+ */
+
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  padding: 1.5rem;
+  max-width: 740px;
+  background: #f0f2f5;
+  color: #222;
+}
+
+h1 { margin: 0 0 0.2rem; font-size: 1.4rem; }
+
+p.subtitle { margin: 0 0 1.25rem; color: #666; font-size: 0.9rem; }
+
+#results {
+  background: #fff;
+  border: 1px solid #dde;
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  font-size: 0.88rem;
+}
+
+.test-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.28rem 0;
+  border-bottom: 1px solid #f0f2f5;
+}
+.test-row:last-child { border-bottom: none; }
+
+.badge {
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  min-width: 3.2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+.badge.pass { background: #d4f5e2; color: #1a7a42; }
+.badge.fail { background: #fad7d7; color: #a01010; }
+
+.test-name { flex: 1; }
+
+.test-detail {
+  color: #c0392b;
+  font-size: 0.82rem;
+  font-family: monospace;
+}
+
+#summary {
+  margin-top: 0.9rem;
+  padding: 0.55rem 1rem;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+#summary.all-pass { background: #d4f5e2; color: #1a7a42; }
+#summary.has-fail  { background: #fad7d7; color: #a01010; }

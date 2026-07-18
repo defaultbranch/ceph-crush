@@ -3,54 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CRUSH Smoke Tests</title>
-  <style>
-    body {
-      font-family: system-ui, sans-serif;
-      padding: 1.5rem;
-      max-width: 740px;
-      background: #f0f2f5;
-      color: #222;
-    }
-    h1 { font-size: 1.3rem; margin: 0 0 0.25rem; }
-    p.subtitle { margin: 0 0 1rem; color: #666; font-size: 0.9rem; }
-    #summary {
-      font-size: 0.95rem;
-      font-weight: bold;
-      margin-bottom: 0.6rem;
-    }
-    #summary.all-pass { color: #27ae60; }
-    #summary.has-fail { color: #e74c3c; }
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      background: #fff;
-      border-radius: 6px;
-      overflow: hidden;
-      border: 1px solid #dde;
-    }
-    th, td {
-      text-align: left;
-      padding: 0.45rem 0.7rem;
-      border-bottom: 1px solid #eef;
-      font-size: 0.88rem;
-    }
-    th { background: #f5f7fa; font-weight: 600; }
-    tr:last-child td { border-bottom: none; }
-    .pass { color: #27ae60; font-weight: bold; }
-    .fail { color: #e74c3c; font-weight: bold; }
-    .detail { display: block; color: #c0392b; font-size: 0.8rem; margin-top: 0.2rem; }
-  </style>
+  <title>crush.js — test suite</title>
+  <link rel="stylesheet" href="test-style.css" />
 </head>
 <body>
-  <h1>CRUSH Algorithm — Smoke Tests</h1>
-  <p class="subtitle">Verifying crush.js before wiring into the visualization.</p>
+  <h1>crush.js — test suite</h1>
+  <p class="subtitle">CRUSH engine · straw2 placement · smoke tests</p>
+  <div id="results"></div>
   <div id="summary"></div>
-  <table>
-    <thead><tr><th style="width:4rem">Result</th><th>Test</th></tr></thead>
-    <tbody id="tbody"></tbody>
-  </table>
 
+  <script src="types.js"></script>
   <script src="crush.js"></script>
   <script>
     // ── Mini test runner ──────────────────────────────────────────────────────
@@ -212,23 +174,31 @@
     });
 
     // ── Render ────────────────────────────────────────────────────────────────
-    const passed = results.filter(r => r.pass).length;
-    const total  = results.length;
-    const allPass = passed === total;
-
-    const summary = document.getElementById('summary');
-    summary.textContent = `${passed} / ${total} tests passed`;
-    summary.className = allPass ? 'all-pass' : 'has-fail';
-
-    const tbody = document.getElementById('tbody');
+    const container = document.getElementById('results');
     for (const r of results) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="${r.pass ? 'pass' : 'fail'}">${r.pass ? 'PASS' : 'FAIL'}</td>
-        <td>${r.name}${r.detail ? `<span class="detail">${r.detail}</span>` : ''}</td>
-      `;
-      tbody.appendChild(tr);
+      const row = document.createElement('div');
+      row.className = 'test-row';
+      const badge = document.createElement('span');
+      badge.className = `badge ${r.pass ? 'pass' : 'fail'}`;
+      badge.textContent = r.pass ? 'PASS' : 'FAIL';
+      const name = document.createElement('span');
+      name.className = 'test-name';
+      name.textContent = r.name;
+      row.appendChild(badge);
+      row.appendChild(name);
+      if (!r.pass) {
+        const detail = document.createElement('span');
+        detail.className = 'test-detail';
+        detail.textContent = r.detail;
+        row.appendChild(detail);
+      }
+      container.appendChild(row);
     }
+
+    const passed = results.filter(r => r.pass).length;
+    const summary = document.getElementById('summary');
+    summary.textContent = `${passed} / ${results.length} tests passed`;
+    summary.className = passed === results.length ? 'all-pass' : 'has-fail';
   </script>
 </body>
 </html>

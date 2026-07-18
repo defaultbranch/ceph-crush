@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>capacity.js — test suite</title>
+  <link rel="stylesheet" href="test-style.css" />
+</head>
+<body>
+  <h1>capacity.js — test suite</h1>
+  <p class="subtitle">Worst-case usable capacity analysis · open browser console for details</p>
+  <div id="results"></div>
+  <div id="summary"></div>
+
+  <script src="types.js"></script>
+  <script src="crush.js"></script>
+  <script src="capacity.js"></script>
+  <script>
+    // ── Mini test runner ──────────────────────────────────────────────────────
+    const results = [];
+
+    function test(name, fn) {
+      try {
+        fn();
+        results.push({ name, pass: true });
+      } catch (e) {
+        results.push({ name, pass: false, detail: e.message });
+      }
+    }
+
+    function assert(condition, msg = 'assertion failed') {
+      if (!condition) throw new Error(msg);
+    }
+
+    // ── Fixtures ──────────────────────────────────────────────────────────────
+    /** @returns {ClusterMap} 3-host cluster (8 / 20 / 12 TB). */
+    function make3Host() {
+      return {
+        name: 'cluster',
+        hosts: [
+          { id: 'h0', hid: 0, name: 'h0', out: false,
+            osds: [{ id: 0, size: 4, out: false }, { id: 1, size: 4, out: false }] },
+          { id: 'h1', hid: 1, name: 'h1', out: false,
+            osds: [{ id: 2, size: 8, out: false }, { id: 3, size: 4, out: false },
+                   { id: 4, size: 8, out: false }] },
+          { id: 'h2', hid: 2, name: 'h2', out: false,
+            osds: [{ id: 5, size: 4, out: false }, { id: 6, size: 8, out: false }] },
+        ],
+      };
+    }
+
+    /** @returns {ClusterMap} 4-host cluster (4 / 8 / 12 / 20 TB). */
+    function make4Host() {
+      return {
+        name: 'cluster',
+        hosts: [
+          { id: 'h0', hid: 0, name: 'h0', out: false, osds: [{ id: 0, size: 4,  out: false }] },
+          { id: 'h1', hid: 1, name: 'h1', out: false, osds: [{ id: 1, size: 8,  out: false }] },
+          { id: 'h2', hid: 2, name: 'h2', out: false, osds: [{ id: 2, size: 12, out: false }] },
+          { id: 'h3', hid: 3, name: 'h3', out: false, osds: [{ id: 3, size: 20, out: false }] },
+        ],
+      };
+    }
+
+    // ── Tests ─────────────────────────────────────────────────────────────────
+    test('scenario count: 3 hosts → 3 scenarios (0, 1, 2 failures)', () => {
+      const s = CAPACITY.worstCaseCapacity(make3Host(), 3);
+      assert(s.length === 3, `expected 3 scenarios, got ${s.length}`);
+      for (let i = 0; i < 3; i++)
+        assert(s[i].failures === i, `s[${i}].failures should be ${i}, got ${s[i].failures}`);
+    });
+
+    test('scenario count: 1 host → 2 scenarios (0, 1 failure)', () => {
+      const map = { name: 'c', hosts: [
+        { id: 'h0', hid: 0, name: 'h0', out: false, osds: [{ id: 0, size: 4, out: false }] },
+      ]};
+      const s = CAPACITY.worstCaseCapacity(map, 3);
+      assert(s.length === 2, `expected 2 scenarios, got ${s.length}`);
+    });
+
+    test('hosts == RF (3 hosts, RF=3): bottleneck = smallest host', () => {
+      const s = CAPACITY.worstCaseCapacity(make3Host(), 3);
+      assert(s[0].status === 'ok', `status should be ok, got ${s[0].status}`);
+      assert(s[0].usableTB === 8, `usable should be 8 TB, got ${s[0].usableTB}`);
+    });
+
+    test('hosts > RF (3 hosts, RF=2): usable = sum / RF', () => {
+      const s = CAPACITY.worstCaseCapacity(make3Host(), 2);
+      assert(s[0].status === 'ok', 'status should be ok');
+      assert(Math.abs(s[0].usableTB - 20) < 0.001,
+        `usable should be 20 TB, got ${s[0].usableTB}`);
+    });
+
+    test('1 failure worst-case (3 hosts, RF=3): biggest host (20 TB) fails → degraded', () => {
+      const s = CAPACITY.worstCaseCapacity(make3Host(), 3);
+      assert(s[1].status === 'degraded', `expected degraded, got ${s[1].status}`);
+      assert(s[1].usableTB === null, 'usableTB should be null when degraded');
+      assert(s[1].hostsRemaining === 2, `hostsRemaining should be 2, got ${s[1].hostsRemaining}`);
+    });
+
+    test('1 failure worst-case (4 hosts, RF=3): biggest host (20 TB) fails → ok, bottleneck', () => {
+      const s = CAPACITY.worstCaseCapacity(make4Host(), 3);
+      assert(s[1].status === 'ok', `expected ok, got ${s[1].status}`);
+      assert(s[1].usableTB === 4, `usable should be 4 TB, got ${s[1].usableTB}`);
+    });
+
+    test('2 failures worst-case (4 hosts, RF=3): two biggest fail → degraded', () => {
+      const s = CAPACITY.worstCaseCapacity(make4Host(), 3);
+      assert(s[2].status === 'degraded', `expected degraded, got ${s[2].status}`);
+      assert(s[2].hostsRemaining === 2, `hostsRemaining should be 2, got ${s[2].hostsRemaining}`);
+    });
+
+    test('0 hosts remaining (1 host, RF=1, 1 failure): unavailable', () => {
+      const map = { name: 'c', hosts: [
+        { id: 'h0', hid: 0, name: 'h0', out: false, osds: [{ id: 0, size: 4, out: false }] },
+      ]};
+      const s = CAPACITY.worstCaseCapacity(map, 1);
+      assert(s[1].status === 'unavailable', `expected unavailable, got ${s[1].status}`);
+      assert(s[1].hostsRemaining === 0, `hostsRemaining should be 0, got ${s[1].hostsRemaining}`);
+    });
+
+    test('out hosts are excluded from weight (treated as non-existent)', () => {
+      const map = make3Host();
+      map.hosts[1].out = true; // h1 (20 TB) out → only 8 + 12 = 20 TB active, 2 hosts
+      const s = CAPACITY.worstCaseCapacity(map, 3);
+      assert(s[0].status === 'degraded',
+        `expected degraded (only 2 active hosts < RF=3), got ${s[0].status}`);
+    });
+
+    test('worst-case ordering: heavier hosts fail first', () => {
+      const s = CAPACITY.worstCaseCapacity(make4Host(), 2);
+      assert(s[0].usableTB > s[1].usableTB,
+        `usable should decrease: ${s[0].usableTB} > ${s[1].usableTB}`);
+      assert(s[1].usableTB > s[2].usableTB,
+        `usable should decrease: ${s[1].usableTB} > ${s[2].usableTB}`);
+    });
+
+    // ── Render results ────────────────────────────────────────────────────────
+    const container = document.getElementById('results');
+    for (const r of results) {
+      const row = document.createElement('div');
+      row.className = 'test-row';
+      const badge = document.createElement('span');
+      badge.className = `badge ${r.pass ? 'pass' : 'fail'}`;
+      badge.textContent = r.pass ? 'PASS' : 'FAIL';
+      const name = document.createElement('span');
+      name.className = 'test-name';
+      name.textContent = r.name;
+      row.appendChild(badge);
+      row.appendChild(name);
+      if (!r.pass) {
+        const detail = document.createElement('span');
+        detail.className = 'test-detail';
+        detail.textContent = r.detail;
+        row.appendChild(detail);
+      }
+      container.appendChild(row);
+    }
+
+    const passed = results.filter(r => r.pass).length;
+    const summary = document.getElementById('summary');
+    summary.textContent = `${passed} / ${results.length} tests passed`;
+    summary.className = passed === results.length ? 'all-pass' : 'has-fail';
+  </script>
+</body>
+</html>
