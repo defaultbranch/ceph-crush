@@ -145,7 +145,9 @@ always assuming the heaviest hosts fail first (maximum capacity loss).
 | `capacity-test.js` | Node.js smoke tests for `capacity.js` (10 tests). |
 | `capacity-test.html` | Browser runner for the same 10 tests. |
 | `test-style.css` | Shared stylesheet for all `*-test.html` pages. |
-| `crush-visualization.html` | Main interactive visualisation page. |
+| `bus.js` | `CrushBus` — application-wide event bus (`on`/`emit`) built on `EventTarget`. Zero dependencies; all components communicate through it. |
+| `crush-map.js` | `<crush-map>` Web Component — renders the SVG cluster tree with PG colouring and legend (shadow DOM). Subscribes to `state-changed` on `CrushBus`. |
+| `crush-visualization.html` | Main interactive visualisation page — orchestrator: holds state, computes stats, emits bus events, renders non-extracted panels. |
 
 ## Implementation Plan
 
@@ -157,7 +159,7 @@ The page is built in eight increments, each independently testable in a browser.
 | ✅ 2 | **CRUSH algorithm core** | `crush.js` — engine with clear data-structure contracts, straw2 bucket selection, failure-domain enforcement, and per-OSD statistics helpers. `crush-test.js` — 11 smoke tests (determinism, replica count, failure domain, weight proportionality, out OSD/host, seed sensitivity, degraded mode, stats helpers), all passing. Bug found and fixed: hash-input collision between host-level and OSD-level selection caused systematic placement bias. |
 | ✅ 3 | **PG distribution display** | `actual / ideal` PG count on every OSD circle; fill colour shifts green → amber when deviation exceeds ±20%. Weight labels on host and root nodes. Summary bar: total PGs, replication factor, total PG-slots, max imbalance %. Bonus: worst-case usable capacity panel for 0/1/2 host failures, extracted into `capacity.js` with 10 smoke tests. Refactor: `types.js` (JSDoc typedefs), `test-style.css` (shared test stylesheet), JSDoc `@param`/`@returns` on all public `crush.js` functions. |
 | ✅ 4 | **Topology controls** | Control panel side-by-side with the SVG canvas (flex row, equal width): add/remove host, add/remove OSD with size picker (1/2/4/8/16 TB). Remove host disabled when host count ≤ RF; remove OSD disabled when it is the last on its host. Monotonically increasing `nextHid`/`nextOsdId` counters ensure stable ids are never reused. Legend moved inside the canvas column. |
-| ✅ 5 | **Pool config controls** | Pool configuration panel (between summary bar and worst-case capacity panel): PG count slider (8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024) — label updates live on drag, full re-render fires on release — and replication factor selector (2 / 3). Both wired to the engine via `pool`. |
+| ✅ 5 | **Pool config controls** | Pool configuration panel (between summary bar and worst-case capacity panel): PG count slider (8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024) — label updates live on drag, full re-render fires on release — and replication factor selector (2 / 3). Both wired to the engine via `pool`. Refactor: extracted `bus.js` (`CrushBus` event bus) and `crush-map.js` (`<crush-map>` Web Component with shadow DOM); orchestrator emits `state-changed` with pre-computed stats; topology controls panel sits beside the canvas in a flex row. |
 | 6 | **Mark out / back in** | Per-OSD and per-host out/in toggle. Display PGs in transit (displaced from canonical location) vs PGs settled. Restore vs rebalance becomes visible. |
 | 7 | **PG trace / step-through** | Click a PG to step through the algorithm's tree traversal, with the chosen path highlighted in the SVG. |
 | 8 | **Algorithm parameters** | Bucket type selector (uniform / list / straw2) and hash seed input. |
