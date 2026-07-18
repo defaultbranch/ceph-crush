@@ -54,6 +54,41 @@
     }
     .summary-bar .stat-value { font-size: 1.05rem; font-weight: 600; color: #222; }
     .summary-bar .stat-value.warn { color: #e67e22; }
+    /* availability panel */
+    .avail-panel {
+      margin-top: 0.75rem;
+      padding: 0.65rem 1rem;
+      background: #fff;
+      border: 1px solid #dde;
+      border-radius: 6px;
+      font-size: 0.88rem;
+    }
+    .avail-panel h3 {
+      margin: 0 0 0.55rem;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #888;
+      font-weight: 600;
+    }
+    .avail-scenarios { display: flex; gap: 1.5rem; }
+    .avail-scenario {
+      display: flex; flex-direction: column; gap: 0.25rem; min-width: 150px;
+    }
+    .avail-scenario .sc-title {
+      font-size: 0.78rem; color: #888;
+      text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .avail-scenario .sc-status {
+      display: inline-block; padding: 0.1rem 0.45rem;
+      border-radius: 3px; font-size: 0.78rem; font-weight: 600; width: fit-content;
+    }
+    .sc-status.ok          { background: #d4f5e2; color: #1a7a42; }
+    .sc-status.degraded    { background: #fdecd2; color: #a05000; }
+    .sc-status.unavailable { background: #fad7d7; color: #a01010; }
+    .avail-scenario .sc-cap { font-size: 1.0rem; font-weight: 600; color: #222; }
+    .avail-scenario .sc-cap.none { color: #bbb; }
+    .avail-scenario .sc-note { font-size: 0.75rem; color: #999; }
   </style>
 </head>
 <body>
@@ -65,6 +100,7 @@
   <script src="crush.js"></script>
 
   <div id="summary" class="summary-bar"></div>
+  <div id="availability" class="avail-panel"></div>
 
   <div class="legend">
     <span class="legend-item"><span class="legend-swatch root"></span>Root (cluster)</span>
@@ -134,6 +170,36 @@
         if (dev > maxDev) maxDev = dev;
       }
       return maxDev;
+    }
+
+    // Worst-case usable capacity when 0, 1, … hosts fail.
+    // Worst case = the heaviest hosts fail first (maximum capacity loss).
+    // Returns an array of { failures, status, usableTB }.
+    //
+    // Capacity model:
+    //   hosts == RF  → every PG lands on every host; bottleneck = smallest host.
+    //                  usable = min(remaining weights).
+    //   hosts >  RF  → CRUSH distributes proportionally; all hosts fill evenly.
+    //                  usable = sum(remaining weights) / RF.
+    //   hosts <  RF  → cannot satisfy failure-domain constraint; cluster degraded.
+    function worstCaseCapacity(map, rf) {
+      const weights = map.hosts
+        .map(h => CRUSH.hostWeight(h))
+        .filter(w => w > 0)
+        .sort((a, b) => b - a); // descending → biggest fail first
+
+      const scenarios = [];
+      for (let f = 0; f <= Math.min(2, weights.length); f++) {
+        const rem = weights.slice(f);
+        const n   = rem.length;
+        let status, usableTB;
+        if (n === 0)        { status = 'unavailable'; usableTB = null; }
+        else if (n < rf)    { status = 'degraded';    usableTB = null; }
+        else if (n === rf)  { status = 'ok';          usableTB = Math.min(...rem); }
+        else                { status = 'ok';          usableTB = rem.reduce((s, w) => s + w, 0) / rf; }
+        scenarios.push({ failures: f, hostsRemaining: n, status, usableTB });
+      }
+      return scenarios;
     }
 
     // ── layout constants ──────────────────────────────────────────────────────
@@ -271,6 +337,30 @@
           `<span class="stat-value">${pool.pgCount * pool.replicationFactor}</span></div>` +
         `<div class="stat"><span class="stat-label">Max imbalance</span>` +
           `<span class="stat-value${imb > 0.20 ? ' warn' : ''}">${imbPct}%</span></div>`;
+
+      // worst-case capacity panel
+      const scenarios = worstCaseCapacity(clusterMap, pool.replicationFactor);
+      const scHTML = scenarios.map(({ failures, hostsRemaining, status, usableTB }) => {
+        const title  = failures === 0
+          ? 'No failures'
+          : `${failures} host${failures > 1 ? 's' : ''} lost (worst case)`;
+        const capStr = usableTB !== null ? `${usableTB.toFixed(1)} TB usable` : '—';
+        const capCls = usableTB !== null ? 'sc-cap' : 'sc-cap none';
+        const label  = status === 'ok' ? 'Healthy'
+                     : status === 'degraded' ? 'Degraded' : 'Unavailable';
+        const note   = status === 'degraded'
+          ? `${hostsRemaining} host${hostsRemaining !== 1 ? 's' : ''} remain &lt; RF=${pool.replicationFactor}; full replication lost`
+          : status === 'unavailable' ? 'No hosts remaining' : '';
+        return `<div class="avail-scenario">` +
+          `<span class="sc-title">${title}</span>` +
+          `<span class="sc-status ${status}">${label}</span>` +
+          `<span class="${capCls}">${capStr}</span>` +
+          (note ? `<span class="sc-note">${note}</span>` : '') +
+          `</div>`;
+      }).join('');
+      document.getElementById('availability').innerHTML =
+        `<h3>Worst-case usable capacity by host failures</h3>` +
+        `<div class="avail-scenarios">${scHTML}</div>`;
     }
 
     renderAll();
