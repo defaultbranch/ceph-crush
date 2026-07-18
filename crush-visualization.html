@@ -14,28 +14,6 @@
     }
     h1 { margin: 0 0 0.2rem; font-size: 1.4rem; }
     p.subtitle { margin: 0 0 1rem; color: #666; font-size: 0.9rem; }
-    #canvas {
-      background: #fff;
-      border: 1px solid #dde;
-      border-radius: 6px;
-      display: block;
-    }
-    /* legend */
-    .legend {
-      display: flex;
-      gap: 1.5rem;
-      margin-top: 0.75rem;
-      font-size: 0.82rem;
-      color: #555;
-      align-items: center;
-    }
-    .legend-item { display: flex; align-items: center; gap: 0.35rem; }
-    .legend-swatch {
-      width: 14px; height: 14px; border-radius: 3px; display: inline-block;
-    }
-    .legend-swatch.root { background: #2c3e50; }
-    .legend-swatch.host { background: #2980b9; }
-    .legend-swatch.osd  { background: #27ae60; border-radius: 50%; }
     /* summary bar */
     .summary-bar {
       display: flex;
@@ -168,8 +146,7 @@
       gap: 0.75rem;
       align-items: flex-start;
     }
-    .main-row #canvas { display: block; width: 100%; }
-    .main-row .canvas-wrap { flex: 1 1 0; min-width: 0; }
+    .main-row crush-map { flex: 1 1 0; min-width: 0; }
     .main-row .ctrl-panel {
       flex: 1 1 0;
       min-width: 0;
@@ -185,20 +162,17 @@
 
   <!-- shared type definitions (JSDoc only, no executable code) -->
   <script src="types.js"></script>
+  <!-- application event bus -->
+  <script src="bus.js"></script>
   <!-- CRUSH engine (increment 2) -->
   <script src="crush.js"></script>
   <!-- capacity analysis -->
   <script src="capacity.js"></script>
+  <!-- SVG cluster map component -->
+  <script src="crush-map.js"></script>
 
   <div class="main-row">
-    <div class="canvas-wrap">
-      <svg id="canvas" width="820" height="460"></svg>
-      <div class="legend">
-        <span class="legend-item"><span class="legend-swatch root"></span>Root (cluster)</span>
-        <span class="legend-item"><span class="legend-swatch host"></span>Host (failure domain)</span>
-        <span class="legend-item"><span class="legend-swatch osd"></span>OSD (size in TB)</span>
-      </div>
-    </div>
+    <crush-map id="map"></crush-map>
     <div id="controls" class="ctrl-panel"></div>
   </div>
 
@@ -418,21 +392,8 @@
     }
 
     // ── colour helpers ────────────────────────────────────────────────────────
-    // Interpolate from green (#27ae60) toward amber (#e67e22) as the OSD's
-    // actual PG count deviates from its ideal beyond the ±20 % threshold.
-    function osdColor(actual, ideal) {
-      if (ideal <= 0) return '#27ae60';
-      const dev = Math.abs(actual - ideal) / ideal;
-      if (dev <= 0.20) return '#27ae60';
-      const t = Math.min((dev - 0.20) / 0.20, 1.0); // 0→1 over the 20–40 % range
-      // green (39, 174, 96) → amber (230, 126, 34)
-      const r = Math.round(39  + t * (230 - 39));
-      const g = Math.round(174 + t * (126 - 174));
-      const b = Math.round(96  + t * (34  - 96));
-      return `rgb(${r},${g},${b})`;
-    }
-
     // Maximum relative deviation across all OSDs with a non-zero ideal.
+    // Used by the summary bar; SVG colouring is owned by crush-map.js.
     function imbalanceMetric(counts, ideals) {
       let maxDev = 0;
       for (const [id, ideal] of ideals) {
@@ -445,138 +406,16 @@
     }
 
     // ── layout constants ──────────────────────────────────────────────────────
-    const SVG_W   = 820;
-    const SLOT_W  = 90;   // horizontal space reserved per OSD
-    const MARGIN_X = 95;  // left margin; chosen so the tree centres in SVG_W
-
-    const Y_ROOT = 60;
-    const Y_HOST = 210;
-    const Y_OSD  = 360;
-
-    const ROOT_W = 120, ROOT_H = 40, ROOT_R = 6;
-    const HOST_W = 110, HOST_H = 40, HOST_R = 6;
-    const OSD_R  = 38;
-
-    // ── SVG helpers ───────────────────────────────────────────────────────────
-    const svg = document.getElementById('canvas');
-    const NS  = 'http://www.w3.org/2000/svg';
-
-    function el(tag, attrs, text) {
-      const e = document.createElementNS(NS, tag);
-      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-      if (text !== undefined) e.textContent = text;
-      return e;
-    }
-
-    function connector(x1, y1, x2, y2) {
-      return el('line', { x1, y1, x2, y2, stroke: '#b0b8c8', 'stroke-width': 2 });
-    }
-
-    function roundedRect(cx, cy, w, h, r, fill) {
-      return el('rect', {
-        x: cx - w / 2, y: cy - h / 2,
-        width: w, height: h, rx: r, ry: r, fill
-      });
-    }
-
-    function label(x, y, text, opts = {}) {
-      return el('text', {
-        x, y,
-        'text-anchor': 'middle',
-        'dominant-baseline': 'middle',
-        fill: opts.fill || '#fff',
-        'font-size': opts.size || 13,
-        'font-family': 'system-ui, sans-serif',
-        'font-weight': opts.bold ? 'bold' : 'normal',
-      }, text);
-    }
-
-    // ── layout computation ────────────────────────────────────────────────────
-    // Assigns (cx, cy) to every host and OSD based on OSD slot order.
-    // Empty hosts (no OSDs) are given one reserved slot so they remain visible.
-    function computeLayout(map) {
-      let slot = 0;
-      const hosts = [];
-
-      for (const host of map.hosts) {
-        const osds = host.osds.map(osd => {
-          const cx = MARGIN_X + slot * SLOT_W + SLOT_W / 2;
-          slot++;
-          return { osd, cx, cy: Y_OSD };
-        });
-        let cx;
-        if (osds.length === 0) {
-          cx = MARGIN_X + slot * SLOT_W + SLOT_W / 2;
-          slot++; // reserve one slot for the empty host
-        } else {
-          cx = osds.reduce((s, o) => s + o.cx, 0) / osds.length;
-        }
-        hosts.push({ host, cx, cy: Y_HOST, osds });
-      }
-
-      const rootCx = hosts.reduce((s, h) => s + h.cx, 0) / hosts.length;
-      return { rootCx, rootCy: Y_ROOT, hosts };
-    }
+    // (owned by crush-map.js as CrushMap static fields)
 
     // ── render ────────────────────────────────────────────────────────────────
-    function render(map, stats) {
-      while (svg.firstChild) svg.removeChild(svg.firstChild);
-
-      const layout = computeLayout(map);
-
-      // Resize SVG width to fit all OSD slots (each host gets ≥ 1 slot).
-      const totalSlots = map.hosts.reduce((s, h) => s + Math.max(h.osds.length, 1), 0);
-      svg.setAttribute('width', Math.max(SVG_W, MARGIN_X * 2 + totalSlots * SLOT_W));
-
-      // connectors (drawn first so they appear behind nodes)
-      for (const hl of layout.hosts) {
-        svg.appendChild(connector(
-          layout.rootCx, layout.rootCy + ROOT_H / 2,
-          hl.cx,         hl.cy        - HOST_H / 2
-        ));
-        for (const ol of hl.osds) {
-          svg.appendChild(connector(
-            hl.cx, hl.cy  + HOST_H / 2,
-            ol.cx, ol.cy  - OSD_R
-          ));
-        }
-      }
-
-      // root node
-      const totalWeight = map.hosts.reduce((s, h) => s + CRUSH.hostWeight(h), 0);
-      svg.appendChild(roundedRect(layout.rootCx, layout.rootCy, ROOT_W, ROOT_H, ROOT_R, '#2c3e50'));
-      svg.appendChild(label(layout.rootCx, layout.rootCy - 9, map.name, { bold: true }));
-      svg.appendChild(label(layout.rootCx, layout.rootCy + 9, `${totalWeight} TB`, { size: 11, fill: '#a8bfd4' }));
-
-      // host nodes
-      for (const hl of layout.hosts) {
-        const hw = CRUSH.hostWeight(hl.host);
-        svg.appendChild(roundedRect(hl.cx, hl.cy, HOST_W, HOST_H, HOST_R, '#2980b9'));
-        svg.appendChild(label(hl.cx, hl.cy - 9, hl.host.name, { size: 13 }));
-        svg.appendChild(label(hl.cx, hl.cy + 9, `${hw} TB`, { size: 11, fill: '#a8d4f0' }));
-      }
-
-      // OSD nodes
-      for (const hl of layout.hosts) {
-        for (const ol of hl.osds) {
-          const actual = stats.counts.get(ol.osd.id) ?? 0;
-          const ideal  = stats.ideals.get(ol.osd.id) ?? 0;
-          const fill   = osdColor(actual, ideal);
-          svg.appendChild(el('circle', { cx: ol.cx, cy: ol.cy, r: OSD_R, fill }));
-          svg.appendChild(label(ol.cx, ol.cy - 14, `osd.${ol.osd.id}`, { size: 12, bold: true }));
-          svg.appendChild(label(ol.cx, ol.cy + 1,  `${ol.osd.size} TB`, { size: 11, fill: '#ddf0e8' }));
-          svg.appendChild(label(ol.cx, ol.cy + 16, `${actual} / ${ideal.toFixed(1)}`, { size: 10 }));
-        }
-      }
-    }
-
     function renderAll() {
       const mapping = CRUSH.computeMapping(clusterMap, pool);
       const counts  = CRUSH.pgCountsPerOsd(clusterMap, mapping);
       const ideals  = CRUSH.idealPgsPerOsd(clusterMap, pool);
-      const stats   = { counts, ideals };
 
-      render(clusterMap, stats);
+      // Notify all subscribers (crush-map, future panels) of the new state.
+      CrushBus.emit('state-changed', { clusterMap, pool, counts, ideals });
 
       // cluster-wide summary bar
       const imb    = imbalanceMetric(counts, ideals);
