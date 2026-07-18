@@ -125,7 +125,7 @@ The page is built in eight increments, each independently testable in a browser.
 |---|-----------|-------------|
 | ✅ 1 | **Static cluster map** | Render a hardcoded topology (3 hosts, a few OSDs each) as an SVG tree. No interactivity — establish the visual layout. |
 | ✅ 2 | **CRUSH algorithm core** | `crush.js` — engine with clear data-structure contracts, straw2 bucket selection, failure-domain enforcement, and per-OSD statistics helpers. `crush-test.js` — 11 smoke tests (determinism, replica count, failure domain, weight proportionality, out OSD/host, seed sensitivity, degraded mode, stats helpers), all passing. Bug found and fixed: hash-input collision between host-level and OSD-level selection caused systematic placement bias. |
-| 3 | **PG distribution display** | Show actual vs ideal PG counts on each OSD in the SVG. The cluster map now reflects a real mapping. |
+| 3 | **PG distribution display** | Wire `pgCountsPerOsd` and `idealPgsPerOsd` into the SVG renderer. Each OSD node shows an `actual / ideal` number pair (e.g. `11 / 12.8`); the fill colour shifts from green toward amber when deviation exceeds ±20%. Also add a cluster-wide summary bar below the SVG: total PGs, replication factor, total PG-slots, and an overall imbalance metric. |
 | 4 | **Topology controls** | Control panel: add/remove host, add/remove OSD with size picker. Every change recomputes and re-renders. |
 | 5 | **Pool config controls** | PG count slider (8 / 16 / 32 / 64) and replication factor selector (2 / 3). Wired to the engine. |
 | 6 | **Mark out / back in** | Per-OSD and per-host out/in toggle. Display PGs in transit (displaced from canonical location) vs PGs settled. Restore vs rebalance becomes visible. |
