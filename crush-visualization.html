@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CRUSH Algorithm Visualization</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 0;
+      padding: 1.5rem;
+      background: #f0f2f5;
+      color: #222;
+    }
+    h1 { margin: 0 0 0.2rem; font-size: 1.4rem; }
+    p.subtitle { margin: 0 0 1rem; color: #666; font-size: 0.9rem; }
+    #canvas {
+      background: #fff;
+      border: 1px solid #dde;
+      border-radius: 6px;
+      display: block;
+    }
+    /* legend */
+    .legend {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 0.75rem;
+      font-size: 0.82rem;
+      color: #555;
+      align-items: center;
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.35rem; }
+    .legend-swatch {
+      width: 14px; height: 14px; border-radius: 3px; display: inline-block;
+    }
+    .legend-swatch.root { background: #2c3e50; }
+    .legend-swatch.host { background: #2980b9; }
+    .legend-swatch.osd  { background: #27ae60; border-radius: 50%; }
+  </style>
+</head>
+<body>
+  <h1>Ceph CRUSH Algorithm</h1>
+  <p class="subtitle">Increment 1 — Static cluster map</p>
+
+  <svg id="canvas" width="820" height="460"></svg>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-swatch root"></span>Root (cluster)</span>
+    <span class="legend-item"><span class="legend-swatch host"></span>Host (failure domain)</span>
+    <span class="legend-item"><span class="legend-swatch osd"></span>OSD (size in TB)</span>
+  </div>
+
+  <script>
+    // ── cluster map data structure ────────────────────────────────────────────
+    // Each OSD has an id (integer) and a size in TB (used as weight).
+    const clusterMap = {
+      name: 'cluster',
+      hosts: [
+        {
+          id: 'host-1', name: 'host-1',
+          osds: [
+            { id: 0, size: 4 },
+            { id: 1, size: 4 },
+          ]
+        },
+        {
+          id: 'host-2', name: 'host-2',
+          osds: [
+            { id: 2, size: 8 },
+            { id: 3, size: 4 },
+            { id: 4, size: 8 },
+          ]
+        },
+        {
+          id: 'host-3', name: 'host-3',
+          osds: [
+            { id: 5, size: 4 },
+            { id: 6, size: 8 },
+          ]
+        },
+      ]
+    };
+
+    // ── layout constants ──────────────────────────────────────────────────────
+    const SVG_W   = 820;
+    const SLOT_W  = 90;   // horizontal space reserved per OSD
+    const MARGIN_X = 95;  // left margin; chosen so the tree centres in SVG_W
+
+    const Y_ROOT = 60;
+    const Y_HOST = 210;
+    const Y_OSD  = 360;
+
+    const ROOT_W = 120, ROOT_H = 40, ROOT_R = 6;
+    const HOST_W = 110, HOST_H = 40, HOST_R = 6;
+    const OSD_R  = 32;
+
+    // ── SVG helpers ───────────────────────────────────────────────────────────
+    const svg = document.getElementById('canvas');
+    const NS  = 'http://www.w3.org/2000/svg';
+
+    function el(tag, attrs, text) {
+      const e = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+      if (text !== undefined) e.textContent = text;
+      return e;
+    }
+
+    function connector(x1, y1, x2, y2) {
+      return el('line', { x1, y1, x2, y2, stroke: '#b0b8c8', 'stroke-width': 2 });
+    }
+
+    function roundedRect(cx, cy, w, h, r, fill) {
+      return el('rect', {
+        x: cx - w / 2, y: cy - h / 2,
+        width: w, height: h, rx: r, ry: r, fill
+      });
+    }
+
+    function label(x, y, text, opts = {}) {
+      return el('text', {
+        x, y,
+        'text-anchor': 'middle',
+        'dominant-baseline': 'middle',
+        fill: opts.fill || '#fff',
+        'font-size': opts.size || 13,
+        'font-family': 'system-ui, sans-serif',
+        'font-weight': opts.bold ? 'bold' : 'normal',
+      }, text);
+    }
+
+    // ── layout computation ────────────────────────────────────────────────────
+    // Assigns (cx, cy) to every host and OSD based on OSD slot order.
+    function computeLayout(map) {
+      let slot = 0;
+      const hosts = [];
+
+      for (const host of map.hosts) {
+        const osds = host.osds.map(osd => {
+          const cx = MARGIN_X + slot * SLOT_W + SLOT_W / 2;
+          slot++;
+          return { osd, cx, cy: Y_OSD };
+        });
+        const cx = osds.reduce((s, o) => s + o.cx, 0) / osds.length;
+        hosts.push({ host, cx, cy: Y_HOST, osds });
+      }
+
+      const rootCx = hosts.reduce((s, h) => s + h.cx, 0) / hosts.length;
+      return { rootCx, rootCy: Y_ROOT, hosts };
+    }
+
+    // ── render ────────────────────────────────────────────────────────────────
+    function render(map) {
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+      const layout = computeLayout(map);
+
+      // connectors (drawn first so they appear behind nodes)
+      for (const hl of layout.hosts) {
+        svg.appendChild(connector(
+          layout.rootCx, layout.rootCy + ROOT_H / 2,
+          hl.cx,         hl.cy        - HOST_H / 2
+        ));
+        for (const ol of hl.osds) {
+          svg.appendChild(connector(
+            hl.cx, hl.cy  + HOST_H / 2,
+            ol.cx, ol.cy  - OSD_R
+          ));
+        }
+      }
+
+      // root node
+      svg.appendChild(roundedRect(layout.rootCx, layout.rootCy, ROOT_W, ROOT_H, ROOT_R, '#2c3e50'));
+      svg.appendChild(label(layout.rootCx, layout.rootCy, map.name, { bold: true }));
+
+      // host nodes
+      for (const hl of layout.hosts) {
+        svg.appendChild(roundedRect(hl.cx, hl.cy, HOST_W, HOST_H, HOST_R, '#2980b9'));
+        svg.appendChild(label(hl.cx, hl.cy, hl.host.name));
+      }
+
+      // OSD nodes
+      for (const hl of layout.hosts) {
+        for (const ol of hl.osds) {
+          svg.appendChild(el('circle', { cx: ol.cx, cy: ol.cy, r: OSD_R, fill: '#27ae60' }));
+          svg.appendChild(label(ol.cx, ol.cy - 9,  `osd.${ol.osd.id}`, { size: 12 }));
+          svg.appendChild(label(ol.cx, ol.cy + 10, `${ol.osd.size} TB`, { size: 11, fill: '#c8f5d8' }));
+        }
+      }
+    }
+
+    render(clusterMap);
+  </script>
+</body>
+</html>
