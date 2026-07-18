@@ -55,7 +55,7 @@ OSDs that belong to the same host. This is the most common real-world configurat
 ### Pool configuration
 | Parameter | Notes |
 |-----------|-------|
-| PG count | Slider: 8 / 16 / 32 / 64. Low values make individual PG movements visible; higher values show the law-of-large-numbers smoothing |
+| PG count | Slider: 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024. Low values make individual PG movements visible; higher values show the law-of-large-numbers smoothing |
 | Replication factor | 2 or 3 replicas per PG |
 
 ### Algorithm parameters
@@ -156,8 +156,8 @@ The page is built in eight increments, each independently testable in a browser.
 | ✅ 1 | **Static cluster map** | Render a hardcoded topology (3 hosts, a few OSDs each) as an SVG tree. No interactivity — establish the visual layout. |
 | ✅ 2 | **CRUSH algorithm core** | `crush.js` — engine with clear data-structure contracts, straw2 bucket selection, failure-domain enforcement, and per-OSD statistics helpers. `crush-test.js` — 11 smoke tests (determinism, replica count, failure domain, weight proportionality, out OSD/host, seed sensitivity, degraded mode, stats helpers), all passing. Bug found and fixed: hash-input collision between host-level and OSD-level selection caused systematic placement bias. |
 | ✅ 3 | **PG distribution display** | `actual / ideal` PG count on every OSD circle; fill colour shifts green → amber when deviation exceeds ±20%. Weight labels on host and root nodes. Summary bar: total PGs, replication factor, total PG-slots, max imbalance %. Bonus: worst-case usable capacity panel for 0/1/2 host failures, extracted into `capacity.js` with 10 smoke tests. Refactor: `types.js` (JSDoc typedefs), `test-style.css` (shared test stylesheet), JSDoc `@param`/`@returns` on all public `crush.js` functions. |
-| 4 | **Topology controls** | Control panel: add/remove host, add/remove OSD with size picker. Every change recomputes and re-renders. |
-| 5 | **Pool config controls** | PG count slider (8 / 16 / 32 / 64) and replication factor selector (2 / 3). Wired to the engine. |
+| ✅ 4 | **Topology controls** | Control panel side-by-side with the SVG canvas (flex row, equal width): add/remove host, add/remove OSD with size picker (1/2/4/8/16 TB). Remove host disabled when host count ≤ RF; remove OSD disabled when it is the last on its host. Monotonically increasing `nextHid`/`nextOsdId` counters ensure stable ids are never reused. Legend moved inside the canvas column. |
+| ✅ 5 | **Pool config controls** | Pool configuration panel (between summary bar and worst-case capacity panel): PG count slider (8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024) — label updates live on drag, full re-render fires on release — and replication factor selector (2 / 3). Both wired to the engine via `pool`. |
 | 6 | **Mark out / back in** | Per-OSD and per-host out/in toggle. Display PGs in transit (displaced from canonical location) vs PGs settled. Restore vs rebalance becomes visible. |
 | 7 | **PG trace / step-through** | Click a PG to step through the algorithm's tree traversal, with the chosen path highlighted in the SVG. |
 | 8 | **Algorithm parameters** | Bucket type selector (uniform / list / straw2) and hash seed input. |

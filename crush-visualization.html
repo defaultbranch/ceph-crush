@@ -89,6 +89,27 @@
     .avail-scenario .sc-cap { font-size: 1.0rem; font-weight: 600; color: #222; }
     .avail-scenario .sc-cap.none { color: #bbb; }
     .avail-scenario .sc-note { font-size: 0.75rem; color: #999; }
+    /* pool configuration panel */
+    .pool-panel {
+      margin-top: 0.75rem;
+      padding: 0.65rem 1rem;
+      background: #fff;
+      border: 1px solid #dde;
+      border-radius: 6px;
+      font-size: 0.88rem;
+    }
+    .pool-panel h3 {
+      margin: 0 0 0.55rem;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #888;
+      font-weight: 600;
+    }
+    .pool-controls { display: flex; gap: 2.5rem; align-items: center; flex-wrap: wrap; }
+    .pool-control { display: flex; align-items: center; gap: 0.5rem; }
+    .pool-control label { font-size: 0.82rem; color: #555; white-space: nowrap; }
+    .pool-value { font-weight: 600; color: #222; min-width: 2.5rem; text-align: right; font-size: 0.88rem; }
     /* topology controls panel */
     .ctrl-panel {
       margin-top: 0.75rem;
@@ -141,13 +162,27 @@
       font-size: 0.82rem; border: 1px solid #dde; border-radius: 4px;
       padding: 0.2rem 0.3rem; font-family: system-ui, sans-serif;
     }
+    /* main two-column layout: SVG left, topology controls right */
+    .main-row {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+    }
+    .main-row #canvas { display: block; width: 100%; }
+    .main-row .canvas-wrap { flex: 1 1 0; min-width: 0; }
+    .main-row .ctrl-panel {
+      flex: 1 1 0;
+      min-width: 0;
+      margin-top: 0;
+      overflow-y: auto;
+      max-height: 460px;
+    }
   </style>
 </head>
 <body>
   <h1>Ceph CRUSH Algorithm</h1>
-  <p class="subtitle">Increment 4 — Topology controls</p>
+  <p class="subtitle">Increment 5 — Pool configuration</p>
 
-  <svg id="canvas" width="820" height="460"></svg>
   <!-- shared type definitions (JSDoc only, no executable code) -->
   <script src="types.js"></script>
   <!-- CRUSH engine (increment 2) -->
@@ -155,15 +190,21 @@
   <!-- capacity analysis -->
   <script src="capacity.js"></script>
 
-  <div id="summary" class="summary-bar"></div>
-  <div id="availability" class="avail-panel"></div>
-  <div id="controls" class="ctrl-panel"></div>
-
-  <div class="legend">
-    <span class="legend-item"><span class="legend-swatch root"></span>Root (cluster)</span>
-    <span class="legend-item"><span class="legend-swatch host"></span>Host (failure domain)</span>
-    <span class="legend-item"><span class="legend-swatch osd"></span>OSD (size in TB)</span>
+  <div class="main-row">
+    <div class="canvas-wrap">
+      <svg id="canvas" width="820" height="460"></svg>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-swatch root"></span>Root (cluster)</span>
+        <span class="legend-item"><span class="legend-swatch host"></span>Host (failure domain)</span>
+        <span class="legend-item"><span class="legend-swatch osd"></span>OSD (size in TB)</span>
+      </div>
+    </div>
+    <div id="controls" class="ctrl-panel"></div>
   </div>
+
+  <div id="summary" class="summary-bar"></div>
+  <div id="pool-config" class="pool-panel"></div>
+  <div id="availability" class="avail-panel"></div>
 
   <script>
     // ── cluster map data structure ────────────────────────────────────────────
@@ -201,6 +242,65 @@
     };
 
     const pool = { pgCount: 32, replicationFactor: 3, seed: 0 };
+
+    // ── pool configuration controls ───────────────────────────────────────────
+    const PG_COUNTS = [8, 16, 32, 64, 128, 256, 512, 1024];
+
+    /**
+     * Update the PG count label while the slider is being dragged (no re-render).
+     * @param {string} idx
+     * @returns {void}
+     */
+    function onPgSliderInput(idx) {
+      const lbl = document.getElementById('pg-value');
+      if (lbl) lbl.textContent = PG_COUNTS[parseInt(idx, 10)];
+    }
+
+    /**
+     * Commit the PG count on slider release and re-render.
+     * @param {string} idx
+     * @returns {void}
+     */
+    function onPgSliderChange(idx) {
+      pool.pgCount = PG_COUNTS[parseInt(idx, 10)];
+      renderAll();
+    }
+
+    /**
+     * Update the replication factor and re-render.
+     * @param {string} val
+     * @returns {void}
+     */
+    function onRfChange(val) {
+      pool.replicationFactor = parseInt(val, 10);
+      renderAll();
+    }
+
+    /**
+     * Re-render the pool configuration panel from the current pool state.
+     * @returns {void}
+     */
+    function renderPoolConfig() {
+      const idx = PG_COUNTS.indexOf(pool.pgCount);
+      const sliderIdx = idx >= 0 ? idx : 3;
+      const rfOpts = [2, 3].map(n =>
+        `<option value="${n}"${pool.replicationFactor === n ? ' selected' : ''}>${n}</option>`
+      ).join('');
+      document.getElementById('pool-config').innerHTML =
+        `<h3>Pool configuration</h3>` +
+        `<div class="pool-controls">` +
+          `<div class="pool-control">` +
+            `<label for="pg-slider">PG count</label>` +
+            `<input id="pg-slider" type="range" min="0" max="7" step="1" value="${sliderIdx}" ` +
+              `oninput="onPgSliderInput(this.value)" onchange="onPgSliderChange(this.value)">` +
+            `<span class="pool-value" id="pg-value">${pool.pgCount}</span>` +
+          `</div>` +
+          `<div class="pool-control">` +
+            `<label for="rf-select">Replication factor</label>` +
+            `<select id="rf-select" class="osd-size" onchange="onRfChange(this.value)">${rfOpts}</select>` +
+          `</div>` +
+        `</div>`;
+    }
 
     // ── stable-id counters (monotonically increasing; values never reused) ────
     let nextHid   = clusterMap.hosts.reduce((m, h) => Math.max(m, h.hid), -1) + 1;
@@ -515,6 +615,7 @@
         `<h3>Worst-case usable capacity by host failures</h3>` +
         `<div class="avail-scenarios">${scHTML}</div>`;
 
+      renderPoolConfig();
       renderControls();
     }
 
