@@ -4,8 +4,6 @@ An interactive, self-contained browser page that teaches Ceph's
 [CRUSH](https://ceph.io/assets/pdfs/weil-crush-sc06.pdf) placement algorithm
 through direct manipulation — no server, no build step, no dependencies.
 
-![increment 5 screenshot placeholder](crush-visualization.md)
-
 ## What is CRUSH?
 
 CRUSH (Controlled Replication Under Scalable Hashing) deterministically maps
@@ -17,7 +15,7 @@ land on different hosts) and minimises data movement when the topology changes.
 
 ```bash
 git clone <repo-url>
-cd crush
+cd ceph-crush
 # open in any modern browser — no web server needed
 open crush-visualization.html          # macOS
 xdg-open crush-visualization.html     # Linux
