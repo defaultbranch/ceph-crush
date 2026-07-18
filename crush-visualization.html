@@ -36,15 +36,35 @@
     .legend-swatch.root { background: #2c3e50; }
     .legend-swatch.host { background: #2980b9; }
     .legend-swatch.osd  { background: #27ae60; border-radius: 50%; }
+    /* summary bar */
+    .summary-bar {
+      display: flex;
+      gap: 2.5rem;
+      margin-top: 0.75rem;
+      padding: 0.65rem 1rem;
+      background: #fff;
+      border: 1px solid #dde;
+      border-radius: 6px;
+      font-size: 0.88rem;
+    }
+    .summary-bar .stat { display: flex; flex-direction: column; gap: 0.1rem; }
+    .summary-bar .stat-label {
+      color: #888; font-size: 0.72rem;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .summary-bar .stat-value { font-size: 1.05rem; font-weight: 600; color: #222; }
+    .summary-bar .stat-value.warn { color: #e67e22; }
   </style>
 </head>
 <body>
   <h1>Ceph CRUSH Algorithm</h1>
-  <p class="subtitle">Increment 1 — Static cluster map</p>
+  <p class="subtitle">Increment 3 — PG distribution display</p>
 
   <svg id="canvas" width="820" height="460"></svg>
   <!-- CRUSH engine (increment 2) -->
   <script src="crush.js"></script>
+
+  <div id="summary" class="summary-bar"></div>
 
   <div class="legend">
     <span class="legend-item"><span class="legend-swatch root"></span>Root (cluster)</span>
@@ -57,6 +77,8 @@
     // Each OSD has an id (integer) and a size in TB (used as weight).
     // hid: stable numeric id used by the CRUSH hash (must not be reused).
     // out: true = temporarily excluded from placement.
+    //
+    // pool: pool configuration fed to the CRUSH engine.
     const clusterMap = {
       name: 'cluster',
       hosts: [
@@ -85,6 +107,35 @@
       ]
     };
 
+    const pool = { pgCount: 32, replicationFactor: 3, seed: 0 };
+
+    // ── colour helpers ────────────────────────────────────────────────────────
+    // Interpolate from green (#27ae60) toward amber (#e67e22) as the OSD's
+    // actual PG count deviates from its ideal beyond the ±20 % threshold.
+    function osdColor(actual, ideal) {
+      if (ideal <= 0) return '#27ae60';
+      const dev = Math.abs(actual - ideal) / ideal;
+      if (dev <= 0.20) return '#27ae60';
+      const t = Math.min((dev - 0.20) / 0.20, 1.0); // 0→1 over the 20–40 % range
+      // green (39, 174, 96) → amber (230, 126, 34)
+      const r = Math.round(39  + t * (230 - 39));
+      const g = Math.round(174 + t * (126 - 174));
+      const b = Math.round(96  + t * (34  - 96));
+      return `rgb(${r},${g},${b})`;
+    }
+
+    // Maximum relative deviation across all OSDs with a non-zero ideal.
+    function imbalanceMetric(counts, ideals) {
+      let maxDev = 0;
+      for (const [id, ideal] of ideals) {
+        if (ideal <= 0) continue;
+        const actual = counts.get(id) ?? 0;
+        const dev = Math.abs(actual - ideal) / ideal;
+        if (dev > maxDev) maxDev = dev;
+      }
+      return maxDev;
+    }
+
     // ── layout constants ──────────────────────────────────────────────────────
     const SVG_W   = 820;
     const SLOT_W  = 90;   // horizontal space reserved per OSD
@@ -96,7 +147,7 @@
 
     const ROOT_W = 120, ROOT_H = 40, ROOT_R = 6;
     const HOST_W = 110, HOST_H = 40, HOST_R = 6;
-    const OSD_R  = 32;
+    const OSD_R  = 38;
 
     // ── SVG helpers ───────────────────────────────────────────────────────────
     const svg = document.getElementById('canvas');
@@ -153,7 +204,7 @@
     }
 
     // ── render ────────────────────────────────────────────────────────────────
-    function render(map) {
+    function render(map, stats) {
       while (svg.firstChild) svg.removeChild(svg.firstChild);
 
       const layout = computeLayout(map);
@@ -173,26 +224,56 @@
       }
 
       // root node
+      const totalWeight = map.hosts.reduce((s, h) => s + CRUSH.hostWeight(h), 0);
       svg.appendChild(roundedRect(layout.rootCx, layout.rootCy, ROOT_W, ROOT_H, ROOT_R, '#2c3e50'));
-      svg.appendChild(label(layout.rootCx, layout.rootCy, map.name, { bold: true }));
+      svg.appendChild(label(layout.rootCx, layout.rootCy - 9, map.name, { bold: true }));
+      svg.appendChild(label(layout.rootCx, layout.rootCy + 9, `${totalWeight} TB`, { size: 11, fill: '#a8bfd4' }));
 
       // host nodes
       for (const hl of layout.hosts) {
+        const hw = CRUSH.hostWeight(hl.host);
         svg.appendChild(roundedRect(hl.cx, hl.cy, HOST_W, HOST_H, HOST_R, '#2980b9'));
-        svg.appendChild(label(hl.cx, hl.cy, hl.host.name));
+        svg.appendChild(label(hl.cx, hl.cy - 9, hl.host.name, { size: 13 }));
+        svg.appendChild(label(hl.cx, hl.cy + 9, `${hw} TB`, { size: 11, fill: '#a8d4f0' }));
       }
 
       // OSD nodes
       for (const hl of layout.hosts) {
         for (const ol of hl.osds) {
-          svg.appendChild(el('circle', { cx: ol.cx, cy: ol.cy, r: OSD_R, fill: '#27ae60' }));
-          svg.appendChild(label(ol.cx, ol.cy - 9,  `osd.${ol.osd.id}`, { size: 12 }));
-          svg.appendChild(label(ol.cx, ol.cy + 10, `${ol.osd.size} TB`, { size: 11, fill: '#c8f5d8' }));
+          const actual = stats.counts.get(ol.osd.id) ?? 0;
+          const ideal  = stats.ideals.get(ol.osd.id) ?? 0;
+          const fill   = osdColor(actual, ideal);
+          svg.appendChild(el('circle', { cx: ol.cx, cy: ol.cy, r: OSD_R, fill }));
+          svg.appendChild(label(ol.cx, ol.cy - 14, `osd.${ol.osd.id}`, { size: 12, bold: true }));
+          svg.appendChild(label(ol.cx, ol.cy + 1,  `${ol.osd.size} TB`, { size: 11, fill: '#ddf0e8' }));
+          svg.appendChild(label(ol.cx, ol.cy + 16, `${actual} / ${ideal.toFixed(1)}`, { size: 10 }));
         }
       }
     }
 
-    render(clusterMap);
+    function renderAll() {
+      const mapping = CRUSH.computeMapping(clusterMap, pool);
+      const counts  = CRUSH.pgCountsPerOsd(clusterMap, mapping);
+      const ideals  = CRUSH.idealPgsPerOsd(clusterMap, pool);
+      const stats   = { counts, ideals };
+
+      render(clusterMap, stats);
+
+      // cluster-wide summary bar
+      const imb    = imbalanceMetric(counts, ideals);
+      const imbPct = (imb * 100).toFixed(1);
+      document.getElementById('summary').innerHTML =
+        `<div class="stat"><span class="stat-label">PGs</span>` +
+          `<span class="stat-value">${pool.pgCount}</span></div>` +
+        `<div class="stat"><span class="stat-label">Replication factor</span>` +
+          `<span class="stat-value">${pool.replicationFactor}</span></div>` +
+        `<div class="stat"><span class="stat-label">Total PG-slots</span>` +
+          `<span class="stat-value">${pool.pgCount * pool.replicationFactor}</span></div>` +
+        `<div class="stat"><span class="stat-label">Max imbalance</span>` +
+          `<span class="stat-value${imb > 0.20 ? ' warn' : ''}">${imbPct}%</span></div>`;
+    }
+
+    renderAll();
   </script>
 </body>
 </html>
