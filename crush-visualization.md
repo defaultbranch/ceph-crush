@@ -137,6 +137,23 @@ always assuming the heaviest hosts fail first (maximum capacity loss).
   ships with a `*-test.js` smoke-test runner and a `*-test.html` browser runner.
   Both use a shared `test-style.css` so they look identical.
 
+### Component architecture
+
+`bus.js` provides a zero-dependency `EventTarget`-based event bus (`CrushBus`).
+The orchestrator (`crush-visualization.html`) computes stats and emits a single
+`state-changed` event; components subscribe and re-render themselves independently.
+
+**Decision:** before implementing increment 6, all remaining inline panels
+(summary bar, worst-case capacity, pool config, topology controls) should be
+migrated to bus subscribers — either as Web Components or as self-contained
+subscriber objects. This makes `renderAll()` a pure emitter with no rendering
+logic of its own, and keeps each future increment purely additive: new state →
+new event detail → existing and new components react.
+
+Current status:
+- `<crush-map>` (`crush-map.js`) — fully extracted, subscribes to `state-changed`
+- Summary bar, availability panel, pool config, topology controls — still inline in `renderAll()`; migration pending
+
 ### File inventory
 
 | File | Role |
