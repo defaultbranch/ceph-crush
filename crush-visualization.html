@@ -89,11 +89,63 @@
     .avail-scenario .sc-cap { font-size: 1.0rem; font-weight: 600; color: #222; }
     .avail-scenario .sc-cap.none { color: #bbb; }
     .avail-scenario .sc-note { font-size: 0.75rem; color: #999; }
+    /* topology controls panel */
+    .ctrl-panel {
+      margin-top: 0.75rem;
+      padding: 0.65rem 1rem;
+      background: #fff;
+      border: 1px solid #dde;
+      border-radius: 6px;
+      font-size: 0.88rem;
+    }
+    .ctrl-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+    .ctrl-header h3 {
+      margin: 0;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #888;
+      font-weight: 600;
+    }
+    .ctrl-host { border-top: 1px solid #eef; padding: 0.4rem 0; }
+    .ctrl-host-header {
+      display: flex; align-items: center; gap: 0.5rem; justify-content: space-between;
+    }
+    .ctrl-host-name { font-weight: 600; color: #2980b9; min-width: 80px; }
+    .ctrl-host-actions { display: flex; align-items: center; gap: 0.4rem; }
+    .ctrl-osds {
+      display: flex; flex-wrap: wrap; gap: 0.4rem;
+      margin-top: 0.35rem; padding-left: 1rem;
+    }
+    .ctrl-no-osds { color: #bbb; font-size: 0.8rem; font-style: italic; }
+    .ctrl-osd {
+      display: flex; align-items: center; gap: 0.3rem;
+      background: #f7f9fb; border: 1px solid #dde; border-radius: 4px;
+      padding: 0.15rem 0.5rem;
+    }
+    .ctrl-osd-label { font-size: 0.82rem; color: #444; }
+    .ctrl-btn {
+      border: none; border-radius: 4px; padding: 0.25rem 0.6rem;
+      cursor: pointer; font-size: 0.82rem; font-family: system-ui, sans-serif;
+    }
+    .ctrl-btn:disabled { opacity: 0.4; cursor: default; }
+    .ctrl-btn-add { background: #27ae60; color: #fff; }
+    .ctrl-btn-add:not(:disabled):hover { background: #219a52; }
+    .ctrl-btn-remove { background: #e74c3c; color: #fff; }
+    .ctrl-btn-remove:not(:disabled):hover { background: #c0392b; }
+    .ctrl-btn-sm { padding: 0.1rem 0.4rem; font-size: 0.76rem; }
+    .osd-size {
+      font-size: 0.82rem; border: 1px solid #dde; border-radius: 4px;
+      padding: 0.2rem 0.3rem; font-family: system-ui, sans-serif;
+    }
   </style>
 </head>
 <body>
   <h1>Ceph CRUSH Algorithm</h1>
-  <p class="subtitle">Increment 3 — PG distribution display</p>
+  <p class="subtitle">Increment 4 — Topology controls</p>
 
   <svg id="canvas" width="820" height="460"></svg>
   <!-- shared type definitions (JSDoc only, no executable code) -->
@@ -105,6 +157,7 @@
 
   <div id="summary" class="summary-bar"></div>
   <div id="availability" class="avail-panel"></div>
+  <div id="controls" class="ctrl-panel"></div>
 
   <div class="legend">
     <span class="legend-item"><span class="legend-swatch root"></span>Root (cluster)</span>
@@ -148,6 +201,121 @@
     };
 
     const pool = { pgCount: 32, replicationFactor: 3, seed: 0 };
+
+    // ── stable-id counters (monotonically increasing; values never reused) ────
+    let nextHid   = clusterMap.hosts.reduce((m, h) => Math.max(m, h.hid), -1) + 1;
+    let nextOsdId = clusterMap.hosts
+      .flatMap(h => h.osds)
+      .reduce((m, o) => Math.max(m, o.id), -1) + 1;
+
+    // ── topology mutation helpers ─────────────────────────────────────────────
+
+    /**
+     * Append a new empty host to the cluster map.
+     * @returns {void}
+     */
+    function addHost() {
+      const hid  = nextHid++;
+      const name = `host-${hid + 1}`;
+      clusterMap.hosts.push({ id: name, hid, name, out: false, osds: [] });
+      renderAll();
+    }
+
+    /**
+     * Remove a host and all its OSDs.
+     * @param {string} hostId
+     * @returns {void}
+     */
+    function removeHost(hostId) {
+      clusterMap.hosts = clusterMap.hosts.filter(h => h.id !== hostId);
+      renderAll();
+    }
+
+    /**
+     * Add an OSD with the given size (TB) to a host.
+     * @param {string} hostId
+     * @param {number} size
+     * @returns {void}
+     */
+    function addOsd(hostId, size) {
+      const host = clusterMap.hosts.find(h => h.id === hostId);
+      if (!host) return;
+      host.osds.push({ id: nextOsdId++, size, out: false });
+      renderAll();
+    }
+
+    /**
+     * Remove an OSD from its host.
+     * @param {string} hostId
+     * @param {OsdId}  osdId
+     * @returns {void}
+     */
+    function removeOsd(hostId, osdId) {
+      const host = clusterMap.hosts.find(h => h.id === hostId);
+      if (!host) return;
+      host.osds = host.osds.filter(o => o.id !== osdId);
+      renderAll();
+    }
+
+    /**
+     * Read the size picker for a host and call addOsd.
+     * @param {string} hostId
+     * @returns {void}
+     */
+    function addOsdFromPicker(hostId) {
+      const sel  = document.querySelector(`.osd-size[data-host="${hostId}"]`);
+      const size = sel ? parseInt(sel.value, 10) : 4;
+      addOsd(hostId, size);
+    }
+
+    // ── controls panel rendering ──────────────────────────────────────────────
+
+    /**
+     * Re-render the topology controls panel from the current clusterMap state.
+     * @returns {void}
+     */
+    function renderControls() {
+      const rf            = pool.replicationFactor;
+      const canRemoveHost = clusterMap.hosts.length > rf;
+      const SIZES         = [1, 2, 4, 8, 16];
+
+      const hostRows = clusterMap.hosts.map(host => {
+        const rmHostAttr = canRemoveHost ? '' : ' disabled';
+        const sizeOpts   = SIZES.map(s =>
+          `<option value="${s}"${s === 4 ? ' selected' : ''}>${s} TB</option>`
+        ).join('');
+
+        const osdItems = host.osds.length === 0
+          ? `<span class="ctrl-no-osds">No OSDs — add one above</span>`
+          : host.osds.map(osd => {
+              const rmOsdAttr = host.osds.length > 1 ? '' : ' disabled';
+              return `<span class="ctrl-osd">` +
+                `<span class="ctrl-osd-label">osd.${osd.id}\u202f(${osd.size}\u202fTB)</span>` +
+                `<button class="ctrl-btn ctrl-btn-remove ctrl-btn-sm"${rmOsdAttr} ` +
+                  `onclick="removeOsd('${host.id}',${osd.id})">Remove</button>` +
+                `</span>`;
+            }).join('');
+
+        return `<div class="ctrl-host">` +
+          `<div class="ctrl-host-header">` +
+            `<span class="ctrl-host-name">${host.name}</span>` +
+            `<span class="ctrl-host-actions">` +
+              `<select class="osd-size" data-host="${host.id}">${sizeOpts}</select>` +
+              `<button class="ctrl-btn ctrl-btn-add" onclick="addOsdFromPicker('${host.id}')">+ Add OSD</button>` +
+              `<button class="ctrl-btn ctrl-btn-remove"${rmHostAttr} onclick="removeHost('${host.id}')">Remove host</button>` +
+            `</span>` +
+          `</div>` +
+          `<div class="ctrl-osds">${osdItems}</div>` +
+          `</div>`;
+      }).join('');
+
+      document.getElementById('controls').innerHTML =
+        `<div class="ctrl-header">` +
+          `<h3>Topology controls</h3>` +
+          `<button class="ctrl-btn ctrl-btn-add" onclick="addHost()">+ Add host</button>` +
+        `</div>` +
+        hostRows;
+    }
 
     // ── colour helpers ────────────────────────────────────────────────────────
     // Interpolate from green (#27ae60) toward amber (#e67e22) as the OSD's
@@ -225,6 +393,7 @@
 
     // ── layout computation ────────────────────────────────────────────────────
     // Assigns (cx, cy) to every host and OSD based on OSD slot order.
+    // Empty hosts (no OSDs) are given one reserved slot so they remain visible.
     function computeLayout(map) {
       let slot = 0;
       const hosts = [];
@@ -235,7 +404,13 @@
           slot++;
           return { osd, cx, cy: Y_OSD };
         });
-        const cx = osds.reduce((s, o) => s + o.cx, 0) / osds.length;
+        let cx;
+        if (osds.length === 0) {
+          cx = MARGIN_X + slot * SLOT_W + SLOT_W / 2;
+          slot++; // reserve one slot for the empty host
+        } else {
+          cx = osds.reduce((s, o) => s + o.cx, 0) / osds.length;
+        }
         hosts.push({ host, cx, cy: Y_HOST, osds });
       }
 
@@ -248,6 +423,10 @@
       while (svg.firstChild) svg.removeChild(svg.firstChild);
 
       const layout = computeLayout(map);
+
+      // Resize SVG width to fit all OSD slots (each host gets ≥ 1 slot).
+      const totalSlots = map.hosts.reduce((s, h) => s + Math.max(h.osds.length, 1), 0);
+      svg.setAttribute('width', Math.max(SVG_W, MARGIN_X * 2 + totalSlots * SLOT_W));
 
       // connectors (drawn first so they appear behind nodes)
       for (const hl of layout.hosts) {
@@ -335,6 +514,8 @@
       document.getElementById('availability').innerHTML =
         `<h3>Worst-case usable capacity by host failures</h3>` +
         `<div class="avail-scenarios">${scHTML}</div>`;
+
+      renderControls();
     }
 
     renderAll();
