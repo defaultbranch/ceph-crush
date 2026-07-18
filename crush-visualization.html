@@ -43,6 +43,8 @@
   <p class="subtitle">Increment 1 — Static cluster map</p>
 
   <svg id="canvas" width="820" height="460"></svg>
+  <!-- CRUSH engine (increment 2) -->
+  <script src="crush.js"></script>
 
   <div class="legend">
     <span class="legend-item"><span class="legend-swatch root"></span>Root (cluster)</span>
@@ -53,29 +55,31 @@
   <script>
     // ── cluster map data structure ────────────────────────────────────────────
     // Each OSD has an id (integer) and a size in TB (used as weight).
+    // hid: stable numeric id used by the CRUSH hash (must not be reused).
+    // out: true = temporarily excluded from placement.
     const clusterMap = {
       name: 'cluster',
       hosts: [
         {
-          id: 'host-1', name: 'host-1',
+          id: 'host-1', hid: 0, name: 'host-1', out: false,
           osds: [
-            { id: 0, size: 4 },
-            { id: 1, size: 4 },
+            { id: 0, size: 4, out: false },
+            { id: 1, size: 4, out: false },
           ]
         },
         {
-          id: 'host-2', name: 'host-2',
+          id: 'host-2', hid: 1, name: 'host-2', out: false,
           osds: [
-            { id: 2, size: 8 },
-            { id: 3, size: 4 },
-            { id: 4, size: 8 },
+            { id: 2, size: 8, out: false },
+            { id: 3, size: 4, out: false },
+            { id: 4, size: 8, out: false },
           ]
         },
         {
-          id: 'host-3', name: 'host-3',
+          id: 'host-3', hid: 2, name: 'host-3', out: false,
           osds: [
-            { id: 5, size: 4 },
-            { id: 6, size: 8 },
+            { id: 5, size: 4, out: false },
+            { id: 6, size: 8, out: false },
           ]
         },
       ]

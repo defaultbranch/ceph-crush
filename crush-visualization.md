@@ -111,6 +111,11 @@ makes this visible through the ideal PG line on each OSD.
 - State is kept in a plain JavaScript object; every control change recomputes
   the full mapping from scratch and re-renders.
 - A step-through panel animates the algorithm's traversal for a selected PG.
+- The CRUSH engine lives in a separate `crush.js` file so it can be loaded by
+  both the HTML page (`<script src="crush.js">`) and the Node.js test runner.
+- All JavaScript logic is accompanied by a `crush-test.js` file executable with
+  `node crush-test.js`, covering the engine with smoke tests before the logic
+  is wired into the visualization.
 
 ## Implementation Plan
 
@@ -118,8 +123,8 @@ The page is built in eight increments, each independently testable in a browser.
 
 | # | Increment | Deliverable |
 |---|-----------|-------------|
-| 1 | **Static cluster map** | Render a hardcoded topology (3 hosts, a few OSDs each) as an SVG tree. No interactivity — establish the visual layout. |
-| 2 | **CRUSH algorithm core** | Implement the JS mapping engine (straw2 bucket selection, failure-domain enforcement). Given a fixed map and pool config, compute OSD assignments for every PG. Verify in the browser console. |
+| ✅ 1 | **Static cluster map** | Render a hardcoded topology (3 hosts, a few OSDs each) as an SVG tree. No interactivity — establish the visual layout. |
+| ✅ 2 | **CRUSH algorithm core** | `crush.js` — engine with clear data-structure contracts, straw2 bucket selection, failure-domain enforcement, and per-OSD statistics helpers. `crush-test.js` — 11 smoke tests (determinism, replica count, failure domain, weight proportionality, out OSD/host, seed sensitivity, degraded mode, stats helpers), all passing. Bug found and fixed: hash-input collision between host-level and OSD-level selection caused systematic placement bias. |
 | 3 | **PG distribution display** | Show actual vs ideal PG counts on each OSD in the SVG. The cluster map now reflects a real mapping. |
 | 4 | **Topology controls** | Control panel: add/remove host, add/remove OSD with size picker. Every change recomputes and re-renders. |
 | 5 | **Pool config controls** | PG count slider (8 / 16 / 32 / 64) and replication factor selector (2 / 3). Wired to the engine. |
